@@ -17,6 +17,10 @@ BALLOON_POP_REWARD: int = 10
 # Score positions in top-left, top-right, bottom-left, bottom-right order
 SCORE_POSITIONS: list[tuple[int, int, str, str]] = [(MARGIN, WINDOW_HEIGHT - MARGIN, "left", "top"), (WINDOW_WIDTH - MARGIN, WINDOW_HEIGHT - MARGIN, "right", "top"), (MARGIN, MARGIN, "left", "bottom"), (WINDOW_WIDTH - MARGIN, MARGIN, "right", "bottom")]
 
+# Player information
+MIN_PLAYERS = 2
+MAX_PLAYERS = 4
+
 class Score(arcade.Text):
     __score: int | None = None
 
@@ -59,6 +63,7 @@ class Player:
         if player_number < 1 or player_number > 4:
             raise InvalidPlayerException(f'Player {player_number} is an invalid player number!')
 
+        self.player_number = player_number
         self.score_position = SCORE_POSITIONS[player_number - 1]
         self.score: Score = Score(*self.score_position)
         self.balloon_texture: arcade.Texture = BALLOON_TEXTURES[player_number - 1]
@@ -82,7 +87,7 @@ class Player:
         # Draw balloon sprites
         self.balloons.draw()
 
-    def update(self, delta_time) -> None:
+    def update(self, delta_time: float) -> None:
         """Update method."""
         # Update score label
         self.score.update()
@@ -104,6 +109,42 @@ class Player:
             # Increase score
             self.score.increase_score()
 
+class PlayerFactory:
+    __players: list[Player] | None = None
+    def __init__(self):
+        self.__players = []
+        self.idx = 0
+    
+    def add_player(self) -> None:
+        """Adds a new player to the game."""
+        self.idx += 1
+        if self.idx > MAX_PLAYERS:
+            raise InvalidPlayerException('The player amount is out of bounds!')
+        self.__players.append(Player(self.idx))
+
+    def draw(self) -> None:
+        """Draws all of the players."""
+        for player in self.__players:
+            player.draw()
+
+    def update(self, delta_time: float) -> None:
+        """Updates all of the players."""
+        for player in self.__players:
+            player.update(delta_time)
+
+    def check_pop(self, position: tuple[int, int]) -> None:
+        """Checks the balloon pop for all of the players."""
+        for player in self.__players:
+            player.check_pop(position)
+
+    def spawn_balloon(self, delta_time: float) -> None:
+        """Spawns a balloon for a random player."""
+        random.choice(self.__players).spawn_balloon()
+
+    def all(self) -> tuple[Player, ...]:
+        """Returns an immutable collection of all of the current players."""
+        return tuple(_ for _ in self.__players)
+
 
 class GameView(arcade.Window):
     """
@@ -113,11 +154,14 @@ class GameView(arcade.Window):
     def __init__(self):
         # Call the parent class and set up the window
         super().__init__(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
-        self.background_color = arcade.csscolor.WHITE
-        self.players: list[Player] = [Player(1), Player(2), Player(3), Player(4)]
+        self.background_color: arcade.csscolor = arcade.csscolor.WHITE
+        # self.players: list[Player] = [Player(1), Player(2), Player(3), Player(4)]
+        self.player_factory: PlayerFactory = PlayerFactory()
     
     def setup(self) -> None:
         """Set up the game here. Call this function to restart the game."""
+        self.player_factory.add_player()
+        self.player_factory.add_player()
         pass
 
     def on_draw(self) -> None:
@@ -126,15 +170,12 @@ class GameView(arcade.Window):
         # Clear the screen to the background color
         self.clear()
 
-        for player in self.players:
-            player.draw()
+        self.player_factory.draw()
 
-
-    def on_update(self, delta_time) -> None:
+    def on_update(self, delta_time: float) -> None:
         """Update objects based on delta time."""
 
-        for player in self.players:
-            player.update(delta_time)
+        self.player_factory.update(delta_time)
 
     def on_mouse_press(self, x, y, button, key_modifiers) -> None:
         """Callback for mouse presses. Used for popping balloons."""
@@ -143,11 +184,10 @@ class GameView(arcade.Window):
             return
 
         # Attempt to remove player's balloons at the mouse coordinate
-        for player in self.players:
-            player.check_pop((x, y))
+        self.player_factory.check_pop((x, y))
 
-    def spawn_balloon(self, delta_time) -> None:
-        random.choice(self.players).spawn_balloon()
+    def spawn_balloon(self, delta_time: float) -> None:
+        self.player_factory.spawn_balloon(delta_time)
 
 
 def main():
