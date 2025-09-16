@@ -3,6 +3,7 @@ Balloon Popping Game
 """
 import arcade
 import random
+import socket
 
 # Constants
 WINDOW_WIDTH: int = 1280
@@ -21,6 +22,10 @@ SCORE_POSITIONS: list[tuple[int, int, str, str]] = [(MARGIN, WINDOW_HEIGHT - MAR
 MIN_PLAYERS = 2
 MAX_PLAYERS = 4
 
+# Client socket for communicating with the server
+CLIENT_SOCKET = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+CLIENT_SOCKET.connect(('127.0.0.1', 55556))
+
 class Score(arcade.Text):
     __score: int | None = None
 
@@ -37,6 +42,12 @@ class Score(arcade.Text):
     def increase_score(self) -> None:
         """Increases the score number."""
         self.__score += BALLOON_POP_REWARD
+
+    def decrease_score(self) -> None:
+        """Decreases the score number. The player is penalized more for popping wrong balloons."""
+        self.__score -= BALLOON_POP_REWARD * 2
+        if self.__score < 0:
+            self__score = 0
 
     def update(self) -> None:
         """Updates the score label with the current score number."""
@@ -108,6 +119,7 @@ class Player:
             self.balloons.remove(balloons_clicked[-1])
             # Increase score
             self.score.increase_score()
+            CLIENT_SOCKET.send('player popped balloon!'.encode('ascii'))
 
 class PlayerFactory:
     __players: list[Player] | None = None
@@ -160,7 +172,7 @@ class GameView(arcade.Window):
     
     def setup(self) -> None:
         """Set up the game here. Call this function to restart the game."""
-        self.player_factory.add_player()
+        CLIENT_SOCKET.send('Client connected and is playing!'.encode('ascii'))
         self.player_factory.add_player()
         pass
 
@@ -190,7 +202,7 @@ class GameView(arcade.Window):
         self.player_factory.spawn_balloon(delta_time)
 
 
-def main():
+def main() -> None:
     """Main function"""
     window = GameView()
     window.setup()
