@@ -119,7 +119,10 @@ class Player:
             self.balloons.remove(balloons_clicked[-1])
             # Increase score
             self.score.increase_score()
-            CLIENT_SOCKET.send('player popped balloon!'.encode('ascii'))
+            message = 'player popped balloon!'
+            header = len(message).to_bytes(8, 'big')
+            buffer: bytes = header + message.encode('ascii')
+            CLIENT_SOCKET.send(buffer)
 
 class PlayerFactory:
     __players: list[Player] | None = None
@@ -172,7 +175,10 @@ class GameView(arcade.Window):
     
     def setup(self) -> None:
         """Set up the game here. Call this function to restart the game."""
-        CLIENT_SOCKET.send('Client connected and is playing!'.encode('ascii'))
+        message = 'Client is connected and is playing!'
+        header = len(message).to_bytes(8, 'big')
+        buffer = header + message.encode('ascii')
+        CLIENT_SOCKET.send(buffer)
         self.player_factory.add_player()
         pass
 

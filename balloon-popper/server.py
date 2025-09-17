@@ -5,12 +5,15 @@ IP = '127.0.0.1'
 PORT = 55556
 MAX_CONNECTIONS = 4
 BYTE_CHUNK_SIZE = 1024
+HEADER_SIZE = 8
 
 def handle_client(client_socket: socket.socket, client_address: tuple[str, int]) -> None:
-    buffer = None
     while True:
-        buffer = client_socket.recv(BYTE_CHUNK_SIZE)
-        if (len(buffer) > 0):
+        message_length = client_socket.recv(HEADER_SIZE)
+        if message_length:
+            message_length = int.from_bytes(message_length, 'big')
+            print(f'message length is: {message_length}')
+            buffer = client_socket.recv(message_length)
             print(buffer.decode('ascii'))
     client_socket.close()
 
