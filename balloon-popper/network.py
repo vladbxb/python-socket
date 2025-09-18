@@ -4,10 +4,18 @@ Network utilities for transmission of the Balloon Popping game data.
 
 import socket
 
+# Socket connection constants
+IP = '127.0.0.1'
+PORT = 55556
+
+# Network frame details
 HEADER_SIZE = 8
 BYTE_ORDER = 'big'
 DEFAULT_ENCODING = 'utf-8'
 MAX_SIZE = 4096
+
+class FrameError(Exception):
+    pass
 
 def length_from_header(buffer: bytes) -> int | None:
     """
@@ -64,4 +72,41 @@ def unpack_buffer(buffer: bytes) -> tuple[int, str] | None:
         return None
     message = buffer[HEADER_SIZE:end].decode(DEFAULT_ENCODING)
     return (length, message)
+
+def recvall(src: socket.socket, length: int) -> bytes:
+    """
+    Receives specified amount of bytes from socket, ensuring full data transmission.
+    The point is to replicate the behavior of socket.socket.sendall().
+    """
+    chunks = []
+    remaining = length
+    while remaining > 0:
+        chunk = src.recv(remaining)
+        if not chunk:
+            raise RuntimeError('Connection closed during byte read!')
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b''.join(chunks)
+
+def recv_buffer(src: socket.socket) -> bytes:
+    """Reads a full message frame from socket (header and message)."""
+    header = recvall(src, HEADER_SIZE)
+    length = length_from_header(header)
+    if length is None:
+        raise ValueError('Could not read frame length from header!')
+    message = recvall(src, length)
+    return header + message
+
+def recv_and_unpack(src: socket.socket) -> tuple[int, str]:
+    """Reads a full message frame and unpacks it in (header, message) form."""
+    buffer = recv_buffer(src)
+    output = unpack_buffer(buffer)
+    if output is None:
+        raise FrameError('Complete frame read failed!')
+    return output
+
+def send_message(dest: socket.socket, message: str) -> None:
+    frame = pack_message(message)
+    dest.sendall(frame)
+
 

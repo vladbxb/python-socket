@@ -1,25 +1,30 @@
 import socket
 import threading
+import json
+import network
 
-IP = '127.0.0.1'
-PORT = 55556
 MAX_CONNECTIONS = 4
-BYTE_CHUNK_SIZE = 1024
-HEADER_SIZE = 8
+
+players = []
 
 def handle_client(client_socket: socket.socket, client_address: tuple[str, int]) -> None:
+    players.append(len(players) + 1)
+    player_data = {
+                    'action': 'PLAYERS',
+                    'assigned_player': len(players),
+                    'player_count': len(players),
+                  }
+    json_data = json.dumps(player_data)
+    network.send_message(client_socket, json_data)
     while True:
-        message_length = client_socket.recv(HEADER_SIZE)
-        if message_length:
-            message_length = int.from_bytes(message_length, 'big')
-            print(f'message length is: {message_length}')
-            buffer = client_socket.recv(message_length)
-            print(buffer.decode('ascii'))
+        length, message = network.recv_and_unpack(client_socket)
+        print(f'message length is: {length}')
+        print(message)
     client_socket.close()
 
 def main() -> None:
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((IP, PORT))
+    server_socket.bind((network.IP, network.PORT))
     server_socket.listen(MAX_CONNECTIONS)
 
     while True:

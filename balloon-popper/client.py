@@ -1,9 +1,12 @@
 """
 Balloon Popping Game
 """
+
 import arcade
+import json
 import random
 import socket
+import network
 
 # Constants
 WINDOW_WIDTH: int = 1280
@@ -22,9 +25,9 @@ SCORE_POSITIONS: list[tuple[int, int, str, str]] = [(MARGIN, WINDOW_HEIGHT - MAR
 MIN_PLAYERS = 2
 MAX_PLAYERS = 4
 
-# Client socket for communicating with the server
-CLIENT_SOCKET = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-CLIENT_SOCKET.connect(('127.0.0.1', 55556))
+# Exception for server errors
+class ServerError(Exception):
+    pass
 
 class Score(arcade.Text):
     __score: int | None = None
@@ -119,10 +122,8 @@ class Player:
             self.balloons.remove(balloons_clicked[-1])
             # Increase score
             self.score.increase_score()
-            message = 'player popped balloon!'
-            header = len(message).to_bytes(8, 'big')
-            buffer: bytes = header + message.encode('ascii')
-            CLIENT_SOCKET.send(buffer)
+            message = f'player popped balloon!'
+            network.send_message(self.player_socket, message)
 
 class PlayerFactory:
     __players: list[Player] | None = None
@@ -130,12 +131,14 @@ class PlayerFactory:
         self.__players = []
         self.idx = 0
     
-    def add_player(self) -> None:
+    def add(self) -> Player:
         """Adds a new player to the game."""
         self.idx += 1
         if self.idx > MAX_PLAYERS:
             raise InvalidPlayerException('The player amount is out of bounds!')
+        player = Player(self.idx)
         self.__players.append(Player(self.idx))
+        return player
 
     def draw(self) -> None:
         """Draws all of the players."""
@@ -170,17 +173,27 @@ class GameView(arcade.Window):
         # Call the parent class and set up the window
         super().__init__(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
         self.background_color: arcade.csscolor = arcade.csscolor.WHITE
-        # self.players: list[Player] = [Player(1), Player(2), Player(3), Player(4)]
         self.player_factory: PlayerFactory = PlayerFactory()
+        # Initialize socket
+        self.player_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     
     def setup(self) -> None:
         """Set up the game here. Call this function to restart the game."""
-        message = 'Client is connected and is playing!'
-        header = len(message).to_bytes(8, 'big')
-        buffer = header + message.encode('ascii')
-        CLIENT_SOCKET.send(buffer)
-        self.player_factory.add_player()
-        pass
+        self.player_socket.connect((network.IP, network.PORT))
+        _, message = network.recv_and_unpack(self.player_socket)
+        json_data = json.loads(message)
+        if json_data['action'] == 'PLAYERS':
+            my_player_number: int = json_data['assigned_player']
+            player_count: int = json_data['player_count']
+            if player_count < my_player_number:
+                raise ServerError('Error: Player assignment out of bounds by server!')
+            for i in range(player_count):
+                player = self.player_factory.add()
+                if i + 1 == my_player_number:
+                    self.current_player = player
+        else:
+            # placeholder exception, remove later
+            raise ServerError(f"Expected 'PLAYERS' message, instead got {json_data['action']}")
 
     def on_draw(self) -> None:
         """Render the screen."""
