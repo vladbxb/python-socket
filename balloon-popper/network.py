@@ -3,6 +3,7 @@ Network utilities for transmission of the Balloon Popping game data.
 """
 
 import socket
+from exceptions import FrameError
 
 # Socket connection constants
 IP = '127.0.0.1'
@@ -14,12 +15,10 @@ BYTE_ORDER = 'big'
 DEFAULT_ENCODING = 'utf-8'
 MAX_SIZE = 4096
 
-class FrameError(Exception):
-    pass
-
 def length_from_header(buffer: bytes) -> int | None:
     """
-    Reads the byte length retrieved from the first header in the read frame into an integer if it exists, or None otherwise.
+    Reads the byte length retrieved from the first header in the read frame 
+    into an integer if it exists, or None otherwise.
     Rejects header sizes of length over 4096.
     """
     if len(buffer) < HEADER_SIZE or len(buffer) > MAX_SIZE:
@@ -37,7 +36,10 @@ def is_message(buffer: bytes) -> bool:
     return len(buffer) >= HEADER_SIZE + length
 
 def pack_header(message_length: int) -> bytes:
-    """Packs the expected message length representation in bytes. Expects a positive message length."""
+    """
+    Packs the expected message length representation in bytes. 
+    Expects a positive message length.
+    """
     if message_length <= 0:
         raise ValueError('The header must have a positive message length!')
     return message_length.to_bytes(HEADER_SIZE, BYTE_ORDER)
@@ -63,7 +65,10 @@ def unpack_message(buffer: bytes) -> str | None:
     return message.decode(DEFAULT_ENCODING)
 
 def unpack_buffer(buffer: bytes) -> tuple[int, str] | None:
-    """Unpacks a complete message buffer into (length, message). Returns None if the message frame was incomplete."""
+    """
+    Unpacks a complete message buffer into (length, message).
+    Returns None if the message frame was incomplete.
+    """
     length = length_from_header(buffer)
     if length is None:
         return None
@@ -106,7 +111,12 @@ def recv_and_unpack(src: socket.socket) -> tuple[int, str]:
     return output
 
 def send_message(dest: socket.socket, message: str) -> None:
+    """Sends a message frame to a destination socket in expected format."""
     frame = pack_message(message)
     dest.sendall(frame)
 
-
+def broadcast_message(dest: list[socket.socket], message: str) -> None:
+    """Broadcasts a message to a collection of sockets."""
+    frame = pack_message(message)
+    for client_socket in dest:
+        client_socket.sendall(frame)

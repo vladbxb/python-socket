@@ -8,7 +8,11 @@ MAX_CONNECTIONS = 4
 players = []
 
 def handle_client(client_socket: socket.socket, client_address: tuple[str, int]) -> None:
-    players.append(len(players) + 1)
+    """Handle each client in a different thread."""
+    # (client_socket, client_address, player_number)
+    # for each player in the players list
+    player_tuple = (client_socket, client_address, len(players) + 1)
+    players.append(player_tuple)
     player_data = {
                     'action': 'PLAYERS',
                     'assigned_player': len(players),
@@ -23,6 +27,7 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
     client_socket.close()
 
 def main() -> None:
+    """Main function."""
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((network.IP, network.PORT))
     server_socket.listen(MAX_CONNECTIONS)
