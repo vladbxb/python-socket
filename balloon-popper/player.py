@@ -3,8 +3,11 @@ Player module for player-related classes.
 """
 
 import random
+import socket
+import json
 import arcade
-from constants import BALLOON_POP_REWARD, SCORE_POSITIONS, SCORE_COLORS, BALLOON_TEXTURES, MARGIN, WINDOW_WIDTH, WINDOW_HEIGHT, MAX_PLAYERS
+import network
+from constants import BALLOON_POP_REWARD, SCORE_POSITIONS, SCORE_COLORS, BALLOON_TEXTURES, MARGIN, WINDOW_WIDTH, WINDOW_HEIGHT, MAX_PLAYERS, PLAYER_COLORS
 from exceptions import InvalidPlayerException
 
 class Score(arcade.Text):
@@ -50,14 +53,14 @@ class Balloon(arcade.Sprite):
 
 class Player:
     """Player class."""
-    def __init__(self, player_number: int):
-        if player_number < 1 or player_number > 4:
-            raise InvalidPlayerException(f'Player {player_number} is an invalid player number!')
+    def __init__(self, player_color: str):
+        if player_color not in PLAYER_COLORS:
+            raise InvalidPlayerException(f'Player {player_color} is an invalid player color!')
 
-        self.player_number = player_number
-        self.score_position = SCORE_POSITIONS[player_number - 1]
-        self.score: Score = Score(*self.score_position, SCORE_COLORS[player_number - 1])
-        self.balloon_texture: arcade.Texture = BALLOON_TEXTURES[player_number - 1]
+        self.player_color = player_color
+        self.score_position = SCORE_POSITIONS[player_color]
+        self.score: Score = Score(*self.score_position, SCORE_COLORS[player_color])
+        self.balloon_texture: arcade.Texture = BALLOON_TEXTURES[player_color]
         self.balloons: arcade.SpriteList = arcade.SpriteList()
 
     def spawn_balloon(self) -> None:
@@ -107,15 +110,15 @@ class PlayerFactory:
     __players: list[Player] | None = None
     def __init__(self):
         self.__players = []
-        self.idx = 0
     
-    def add(self) -> Player:
+    def add(self, color: str) -> Player:
         """Adds a new player to the game."""
-        self.idx += 1
-        if self.idx > MAX_PLAYERS:
+        if len(self.__players) >= MAX_PLAYERS:
             raise InvalidPlayerException('The player amount is out of bounds!')
-        player = Player(self.idx)
-        self.__players.append(Player(self.idx))
+        if color not in PLAYER_COLORS:
+            raise ValueError('Cannot add player of invalid color!')
+        player = Player(color)
+        self.__players.append(player)
         return player
 
     def draw(self) -> None:
@@ -133,10 +136,22 @@ class PlayerFactory:
         for player in self.__players:
             player.check_pop(position)
 
-    def spawn_balloon(self, delta_time: float) -> None:
+    def spawn_balloon(self) -> None:
         """Spawns a balloon for a random player."""
         random.choice(self.__players).spawn_balloon()
 
     def all(self) -> tuple[Player, ...]:
         """Returns an immutable collection of all of the current players."""
         return tuple(_ for _ in self.__players)
+
+def claim_player_color(server_socket: socket.socket, player_color: str) -> None:
+    """Request server for claiming a player spot."""
+    if player_color not in PLAYER_COLORS:
+        raise ValueError(f'Player color {player_color} does not exist!')
+    message = {
+        'action': 'COLOR PICK',
+        'color': player_color,
+    }
+    json_message = json.dumps(message)
+    network.send_message(server_socket, json_message)
+

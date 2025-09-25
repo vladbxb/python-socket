@@ -3,17 +3,22 @@ Network utilities for transmission of the Balloon Popping game data.
 """
 
 import socket
+from queue import Queue
 from exceptions import FrameError
+from constants import HEADER_SIZE, MAX_SIZE, BYTE_ORDER, DEFAULT_ENCODING, IP, PORT, MAX_CONNECTIONS
 
-# Socket connection constants
-IP = '127.0.0.1'
-PORT = 55556
+def make_server_socket() -> socket.socket:
+    """Prepares a server socket object with a TCP stream."""
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((IP, PORT))
+    server_socket.listen(MAX_CONNECTIONS)
+    return server_socket
 
-# Network frame details
-HEADER_SIZE = 8
-BYTE_ORDER = 'big'
-DEFAULT_ENCODING = 'utf-8'
-MAX_SIZE = 4096
+def make_client_socket() -> socket.socket:
+    """Prepares a client socket in order to communicate with the server via TCP."""
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect((IP, PORT))
+    return client_socket
 
 def length_from_header(buffer: bytes) -> int | None:
     """
@@ -120,3 +125,25 @@ def broadcast_message(dest: list[socket.socket], message: str) -> None:
     frame = pack_message(message)
     for client_socket in dest:
         client_socket.sendall(frame)
+
+def recv_into_queue(client_socket: socket.socket, message_queue: Queue) -> None:
+    """
+    Receives incoming frames into a message queue.
+    This function is designed to always run on a separate thread, daemonized
+    (as to only close when the whole program exits)
+    example: threading.Thread(target=recv_into_queue, args=(client_socket, message_queue), daemon=True).start()
+    """
+    try:
+        while True:
+            frame = recv_and_unpack(client_socket)
+            message_queue.put(frame)
+    except Exception as e:
+        print(e)
+
+def poll_from_queue(message_queue: Queue, callback) -> None:
+    """Calls callback on every message from the queue, until it's fully drained."""
+    while True:
+        if message_queue.empty():
+            break
+        _, message = message_queue.get_nowait()
+        callback(message)
