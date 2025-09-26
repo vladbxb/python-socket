@@ -17,6 +17,7 @@ Once the players have all confirmed that they want to start the game, a bunch of
 The server and clients communicate via TCP sockets, via network frames which are made of:
 - HEADER: integer representing the following message length
 - MESSAGE: the actual string to be passed around
+
 For simplifying the transmission of messages between the server and clients, various functions which serve as abstractions can be found in the network.py file.
 The HEADER is an integer, and it's represented in the frame in big-endian format (common for server transmission). The MESSAGE is encoded in UTF-8 by default, but this can be changed via the DEFAULT_ENCODING variable in constants.py to something else.
 
