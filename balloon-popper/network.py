@@ -140,10 +140,13 @@ def recv_into_queue(client_socket: socket.socket, message_queue: Queue) -> None:
     except Exception as e:
         print(e)
 
-def poll_from_queue(message_queue: Queue, callback) -> None:
+def poll_from_queue(message_queue: Queue, callback, server_state=None) -> None:
     """Calls callback on every message from the queue, until it's fully drained."""
     while True:
         if message_queue.empty():
             break
         _, message = message_queue.get_nowait()
-        callback(message)
+        if server_state is not None:
+            callback(message, server_state)
+        else:
+            callback(message)

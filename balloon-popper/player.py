@@ -10,6 +10,14 @@ import network
 from constants import BALLOON_POP_REWARD, SCORE_POSITIONS, SCORE_COLORS, BALLOON_TEXTURES, MARGIN, WINDOW_WIDTH, WINDOW_HEIGHT, MAX_PLAYERS, PLAYER_COLORS
 from exceptions import InvalidPlayerException
 
+def increase_score_num(score: int) -> int:
+    """Returns increased score number"""
+    return score + BALLOON_POP_REWARD
+
+def decrease_score_num(score: int) -> int:
+    """Returns decreased score number"""
+    return score - BALLOON_POP_REWARD * 2
+
 class Score(arcade.Text):
     """
     Score class for Player.
@@ -28,11 +36,11 @@ class Score(arcade.Text):
 
     def increase_score(self) -> None:
         """Increases the score number."""
-        self.__score += BALLOON_POP_REWARD
+        self.__score = increase_score_num(self.__score)
 
     def decrease_score(self) -> None:
         """Decreases the score number. The player is penalized more for popping wrong balloons."""
-        self.__score -= BALLOON_POP_REWARD * 2
+        self.__score = decrease_score_num(self.__score)
         if self.__score < 0:
             self.__score = 0
 
@@ -43,9 +51,9 @@ class Score(arcade.Text):
 
 class Balloon(arcade.Sprite):
     """Balloon class for Player."""
-    def __init__(self, id: int, player_color: str, center_x: int, center_y: int):
+    def __init__(self, balloon_id: str, player_color: str, center_x: int, center_y: int):
         super().__init__()
-        self.id = id
+        self.balloon_id = balloon_id
         self.player_color = player_color
         self.texture: arcade.Texture = BALLOON_TEXTURES[player_color]
         self.center_x = center_x
@@ -58,33 +66,63 @@ class BalloonManager:
     def __init__(self):
         self.__balloons: arcade.SpriteList = arcade.SpriteList()
     
-    def add(self, id: int, player_color: str, x: int, y: int):
+    def add(self, balloon_id: str, player_color: str, x: int, y: int):
         """Adds a balloon object by given id, color and position"""
-        self.__balloons.append(Balloon(id, player_color, x, y))
+        self.__balloons.append(Balloon(balloon_id, player_color, x, y))
     
-    def get_balloon_by_id(self, id: int) -> Balloon:
+    def get_balloon_by_id(self, balloon_id: str) -> Balloon:
         """Returns a reference to a balloon by id"""
         for balloon in self.__balloons:
-            if balloon.id == id:
+            if balloon.balloon_id == balloon_id:
                 return balloon
     
-    def pop(self, id: int) -> None:
+    def remove_by_id(self, balloon_id: int) -> None:
         """Removes a balloon by id"""
         for balloon in self.__balloons:
-            if balloon.id == id:
+            if balloon.balloon_id == balloon_id:
                 self.__balloons.remove(balloon)
                 break
+
+    def pop_top(self, position: tuple[float, float]) -> bool:
+        """Pops the balloon at the top-most layer where the player clicked."""
+        x, y = position
+        balloons_clicked: list[arcade.sprite.Sprite] = arcade.get_sprites_at_point((x, y), self.__balloons)
+        if len(balloons_clicked) > 0:
+            # Get the last drawn balloon
+            balloon_to_remove = balloons_clicked[-1]
+            window = arcade.get_window()
+            current_player = window.current_player
+
+            # Prepare balloon data for sending to server
+            balloon_data = {
+                'action': 'BALLOON POP',
+                'balloon_id': balloon_to_remove.balloon_id,
+                'popped_by': current_player,
+            }
+            balloon_data_json = json.dumps(balloon_data)
+            network.send_message(window.client_socket, balloon_data_json)
+
+            print(f'Sent BALLOON POP message for {balloon_to_remove.balloon_id} to server!')
+            # Remove the last drawn balloon
+            self.__balloons.remove(balloons_clicked[-1])
     
     def draw(self) -> None:
         """Draw method"""
         self.__balloons.draw()
     
     def update(self, delta_time: float) -> None:
+        """Update method"""
         # Raise all of the balloons
         for balloon in self.__balloons:
             balloon.center_y += balloon.velocity_y * delta_time
             # If the balloon goes out of bounds, remove it
-            if balloon.center_y - BALLOON_TEXTURES[0].size[0] // 2 > WINDOW_HEIGHT:
+            texture_size_x, _ = BALLOON_TEXTURES[balloon.player_color].size
+            if balloon.center_y - texture_size_x > WINDOW_HEIGHT:
+                window = arcade.get_window()
+                out_of_bounds_msg = {'action': 'BALLOON OUT OF BOUNDS', 'balloon_id': balloon.balloon_id}
+                out_of_bounds_msg_json = json.dumps(out_of_bounds_msg)
+                network.send_message(window.client_socket, out_of_bounds_msg_json)
+                print(f'Sent BALLOON OUT OF BOUNDS message for {balloon.balloon_id}!')
                 self.__balloons.remove(balloon)
 
 class Player:
@@ -100,13 +138,6 @@ class Player:
 
     # def spawn_balloon(self) -> None:
     #     """Spawns a balloon at random coordinates."""
-    #     balloon_size_x, balloon_size_y = self.balloon_texture.size
-    #     half_balloon_x: int = balloon_size_x // 2
-    #     half_balloon_y: int = balloon_size_y // 2
-    #     margin_x: int = MARGIN * 3
-    #     random_x: int = random.randint(margin_x + half_balloon_x, WINDOW_WIDTH - margin_x - half_balloon_x)
-    #     random_y: int = random.randint(half_balloon_y, WINDOW_HEIGHT - half_balloon_y)
-    #     self.balloons.append(Balloon(self.balloon_texture, random_x, random_y))
 
     def draw(self) -> None:
         """Draw method."""
@@ -128,17 +159,6 @@ class Player:
         #     if balloon.center_y - BALLOON_TEXTURES[0].size[0] // 2 > WINDOW_HEIGHT:
         #         self.balloons.remove(balloon)
 
-    # def check_pop(self, position: tuple[float, float]) -> None:
-    #     """Checks if player clicked to pop their balloons."""
-    #     x, y = position
-    #     balloons_clicked: list[arcade.sprite.Sprite] = arcade.get_sprites_at_point((x, y), self.balloons)
-    #     if len(balloons_clicked) > 0:
-    #         # Remove the last drawn balloon
-    #         self.balloons.remove(balloons_clicked[-1])
-    #         # Increase score
-    #         self.score.increase_score()
-    #         # message = f'player popped balloon!'
-    #         # network.send_message(self.player_socket, message)
 
 class PlayerFactory:
     """Player factory"""
@@ -157,6 +177,7 @@ class PlayerFactory:
         return player
     
     def get_player_by_color(self, color: str) -> Player:
+        """Returns reference to player by player color."""
         for player in self.__players:
             if player.player_color == color:
                 return player

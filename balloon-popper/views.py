@@ -193,6 +193,32 @@ class GameView(arcade.View):
     def on_show_view(self):
         for color in self.claimed_colors:
             self.player_factory.add(color)
+    
+    def handle_game_server_msgs(self, game_message_json: str):
+        """Handles messages received from the server in the game loop."""
+        game_message = json.loads(game_message_json)
+        match game_message['action']:
+            case 'BALLOON SPAWN':
+                balloon_id = game_message['balloon_id']
+                player_color = game_message['player_color']
+                center_x = game_message['center_x']
+                center_y = game_message['center_y']
+                # print(f'Received BALLOON SPAWN message for balloon {balloon_id} with color {player_color}!')
+                self.balloon_manager.add(balloon_id, player_color, center_x, center_y)
+            case 'SCORE INCREASE':
+                player_color = game_message['player_color']
+                # print(f'Received SCORE INCREASE message for player {player_color}!')
+                self.player_factory.get_player_by_color(player_color).score.increase_score()
+            case 'SCORE DECREASE':
+                player_color = game_message['player_color']
+                # print(f'Received SCORE DECREASE message for player {player_color}!')
+                self.player_factory.get_player_by_color(player_color).score.decrease_score()
+            case 'BALLOON REMOVE':
+                balloon_id = game_message['balloon_id']
+                # print(f'Received BALLOON REMOVE message for {balloon_id}!')
+                self.balloon_manager.remove_by_id(balloon_id)
+            case _:
+                raise UndefinedMessageException(f"Received invalid message from game server: {game_message['action']}")
 
     def on_draw(self) -> None:
         """Render the screen."""
@@ -201,11 +227,14 @@ class GameView(arcade.View):
         self.clear()
 
         self.player_factory.draw()
+        self.balloon_manager.draw()
 
     def on_update(self, delta_time: float) -> None:
         """Update objects based on delta time."""
 
         self.player_factory.update(delta_time)
+        self.balloon_manager.update(delta_time)
+        network.poll_from_queue(self.window.pending_messages, self.handle_game_server_msgs)
 
     def on_mouse_press(self, x: int, y: int, button, modifiers) -> None:
         """Callback for mouse presses. Used for popping balloons."""
@@ -213,5 +242,4 @@ class GameView(arcade.View):
         if button != arcade.MOUSE_BUTTON_LEFT:
             return
 
-        # Attempt to remove player's balloons at the mouse coordinate
-        # self.player_factory.check_pop((x, y))
+        self.balloon_manager.pop_top((x, y))
