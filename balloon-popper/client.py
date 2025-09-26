@@ -3,13 +3,13 @@ Balloon Popping Game
 """
 
 import arcade
-from views import MenuView, GameView
+from views import MenuView
 from constants import WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE
 
 def main() -> None:
     """Main function"""
     window = arcade.Window(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
-    menu_view = MenuView(window)
+    menu_view = MenuView()
     window.show_view(menu_view)
     # game_view = GameView({'red', 'green'})
     # window.show_view(game_view)

@@ -105,12 +105,15 @@ class ConfirmButton(arcade.gui.UIFlatButton):
     """
     Button for confirming game start.
     """
-    def __init__(self, window: arcade.Window):
-        self.window = window
+    def __init__(self):
         super().__init__(x=WINDOW_WIDTH // 2 - 150, y=WINDOW_HEIGHT * 0.05, width=300, height=100, text='Start Game!')
     
     def on_click(self, event: arcade.gui.UIOnClickEvent) -> None:
+        # Get a handle to the current window
+        window = arcade.get_window()
+
+        # Send start confirm message
         confirm_message = {'action': 'CONFIRM START'}
         confirm_message_json = json.dumps(confirm_message)
-        network.send_message(self.window.client_socket, confirm_message_json)
+        network.send_message(window.client_socket, confirm_message_json)
         self.disabled = True

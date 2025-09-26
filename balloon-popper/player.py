@@ -43,13 +43,49 @@ class Score(arcade.Text):
 
 class Balloon(arcade.Sprite):
     """Balloon class for Player."""
-    def __init__(self, texture: arcade.Texture, center_x: int, center_y: int):
+    def __init__(self, id: int, player_color: str, center_x: int, center_y: int):
         super().__init__()
-        self.texture = texture
+        self.id = id
+        self.player_color = player_color
+        self.texture: arcade.Texture = BALLOON_TEXTURES[player_color]
         self.center_x = center_x
         self.center_y = center_y
         self.scale: float = 0.5
         self.velocity_y: int = 80
+
+class BalloonManager:
+    """Balloon manager class"""
+    def __init__(self):
+        self.__balloons: arcade.SpriteList = arcade.SpriteList()
+    
+    def add(self, id: int, player_color: str, x: int, y: int):
+        """Adds a balloon object by given id, color and position"""
+        self.__balloons.append(Balloon(id, player_color, x, y))
+    
+    def get_balloon_by_id(self, id: int) -> Balloon:
+        """Returns a reference to a balloon by id"""
+        for balloon in self.__balloons:
+            if balloon.id == id:
+                return balloon
+    
+    def pop(self, id: int) -> None:
+        """Removes a balloon by id"""
+        for balloon in self.__balloons:
+            if balloon.id == id:
+                self.__balloons.remove(balloon)
+                break
+    
+    def draw(self) -> None:
+        """Draw method"""
+        self.__balloons.draw()
+    
+    def update(self, delta_time: float) -> None:
+        # Raise all of the balloons
+        for balloon in self.__balloons:
+            balloon.center_y += balloon.velocity_y * delta_time
+            # If the balloon goes out of bounds, remove it
+            if balloon.center_y - BALLOON_TEXTURES[0].size[0] // 2 > WINDOW_HEIGHT:
+                self.__balloons.remove(balloon)
 
 class Player:
     """Player class."""
@@ -60,50 +96,49 @@ class Player:
         self.player_color = player_color
         self.score_position = SCORE_POSITIONS[player_color]
         self.score: Score = Score(*self.score_position, SCORE_COLORS[player_color])
-        self.balloon_texture: arcade.Texture = BALLOON_TEXTURES[player_color]
-        self.balloons: arcade.SpriteList = arcade.SpriteList()
+        # self.balloons: arcade.SpriteList = arcade.SpriteList()
 
-    def spawn_balloon(self) -> None:
-        """Spawns a balloon at random coordinates."""
-        balloon_size_x, balloon_size_y = self.balloon_texture.size
-        half_balloon_x: int = balloon_size_x // 2
-        half_balloon_y: int = balloon_size_y // 2
-        margin_x: int = MARGIN * 3
-        random_x: int = random.randint(margin_x + half_balloon_x, WINDOW_WIDTH - margin_x - half_balloon_x)
-        random_y: int = random.randint(half_balloon_y, WINDOW_HEIGHT - half_balloon_y)
-        self.balloons.append(Balloon(self.balloon_texture, random_x, random_y))
+    # def spawn_balloon(self) -> None:
+    #     """Spawns a balloon at random coordinates."""
+    #     balloon_size_x, balloon_size_y = self.balloon_texture.size
+    #     half_balloon_x: int = balloon_size_x // 2
+    #     half_balloon_y: int = balloon_size_y // 2
+    #     margin_x: int = MARGIN * 3
+    #     random_x: int = random.randint(margin_x + half_balloon_x, WINDOW_WIDTH - margin_x - half_balloon_x)
+    #     random_y: int = random.randint(half_balloon_y, WINDOW_HEIGHT - half_balloon_y)
+    #     self.balloons.append(Balloon(self.balloon_texture, random_x, random_y))
 
     def draw(self) -> None:
         """Draw method."""
         # Draw score label
         self.score.draw()
 
-        # Draw balloon sprites
-        self.balloons.draw()
+        # # Draw balloon sprites
+        # self.balloons.draw()
 
     def update(self, delta_time: float) -> None:
         """Update method."""
         # Update score label
         self.score.update()
 
-        # Raise all of the balloons
-        for balloon in self.balloons:
-            balloon.center_y += balloon.velocity_y * delta_time
-            # If the balloon goes out of bounds, remove it
-            if balloon.center_y - BALLOON_TEXTURES[0].size[0] // 2 > WINDOW_HEIGHT:
-                self.balloons.remove(balloon)
+        # # Raise all of the balloons
+        # for balloon in self.balloons:
+        #     balloon.center_y += balloon.velocity_y * delta_time
+        #     # If the balloon goes out of bounds, remove it
+        #     if balloon.center_y - BALLOON_TEXTURES[0].size[0] // 2 > WINDOW_HEIGHT:
+        #         self.balloons.remove(balloon)
 
-    def check_pop(self, position: tuple[float, float]) -> None:
-        """Checks if player clicked to pop their balloons."""
-        x, y = position
-        balloons_clicked: list[arcade.sprite.Sprite] = arcade.get_sprites_at_point((x, y), self.balloons)
-        if len(balloons_clicked) > 0:
-            # Remove the last drawn balloon
-            self.balloons.remove(balloons_clicked[-1])
-            # Increase score
-            self.score.increase_score()
-            # message = f'player popped balloon!'
-            # network.send_message(self.player_socket, message)
+    # def check_pop(self, position: tuple[float, float]) -> None:
+    #     """Checks if player clicked to pop their balloons."""
+    #     x, y = position
+    #     balloons_clicked: list[arcade.sprite.Sprite] = arcade.get_sprites_at_point((x, y), self.balloons)
+    #     if len(balloons_clicked) > 0:
+    #         # Remove the last drawn balloon
+    #         self.balloons.remove(balloons_clicked[-1])
+    #         # Increase score
+    #         self.score.increase_score()
+    #         # message = f'player popped balloon!'
+    #         # network.send_message(self.player_socket, message)
 
 class PlayerFactory:
     """Player factory"""
@@ -120,6 +155,11 @@ class PlayerFactory:
         player = Player(color)
         self.__players.append(player)
         return player
+    
+    def get_player_by_color(self, color: str) -> Player:
+        for player in self.__players:
+            if player.player_color == color:
+                return player
 
     def draw(self) -> None:
         """Draws all of the players."""
@@ -130,19 +170,6 @@ class PlayerFactory:
         """Updates all of the players."""
         for player in self.__players:
             player.update(delta_time)
-
-    def check_pop(self, position: tuple[int, int]) -> None:
-        """Checks the balloon pop for all of the players."""
-        for player in self.__players:
-            player.check_pop(position)
-
-    def spawn_balloon(self) -> None:
-        """Spawns a balloon for a random player."""
-        random.choice(self.__players).spawn_balloon()
-
-    def all(self) -> tuple[Player, ...]:
-        """Returns an immutable collection of all of the current players."""
-        return tuple(_ for _ in self.__players)
 
 def claim_player_color(server_socket: socket.socket, player_color: str) -> None:
     """Request server for claiming a player spot."""

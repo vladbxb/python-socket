@@ -6,49 +6,39 @@ import queue
 import network
 from constants import WINDOW_WIDTH, WINDOW_HEIGHT, PLAYER_COLORS
 from exceptions import UndefinedMessageException
-from player import PlayerFactory
+from player import PlayerFactory, BalloonManager
 from buttons import ColorButton, ConfirmButton
-
-def switch_to_choice_view(window: arcade.Window) -> None:
-    """
-    Switches the view to the player choice view.
-    """
-    choice_view = PlayerChoiceView(window)
-    window.show_view(choice_view)
 
 class PlayButton(arcade.gui.UIFlatButton):
     """
     The button for starting the player choice view.
     """
-    def __init__(self, window: arcade.Window):
+    def __init__(self):
         super().__init__(text='Play', width=300)
-        self.window = window
 
     def on_click(self, event: arcade.gui.UIOnClickEvent):
         # game_view = GameView()
         # game_view.setup()
         # arcade.schedule(game_view.spawn_balloon, 1/4)
-        switch_to_choice_view(self.window)
+        window = arcade.get_window()
+        choice_view = PlayerChoiceView()
+        window.show_view(choice_view)
 
 class MenuView(arcade.View):
     """
     Main menu class.
     """
 
-    def __init__(self, window: arcade.Window):
+    def __init__(self):
         super().__init__()
-        self.window = window
-        self.background_color = arcade.csscolor.WHITE
         self.title = arcade.Text(text='Balloon Popping!', x=WINDOW_WIDTH // 2, y=WINDOW_HEIGHT // 3 * 2, color=arcade.color.BLACK, font_size=30, anchor_x='center')
         self.ui_manager = arcade.gui.UIManager()
-        self.ui_manager.enable()
-
         # Create anchor layout
         self.anchor = arcade.gui.UIAnchorLayout()
         self.ui_manager.add(self.anchor)
 
         # Create play button
-        self.play_button = PlayButton(window)
+        self.play_button = PlayButton()
 
         # Add play button to anchor
         self.anchor.add(
@@ -56,6 +46,10 @@ class MenuView(arcade.View):
             anchor_x='center_x',
             anchor_y='center_y',
         )
+
+    def on_show_view(self):
+        self.background_color = arcade.csscolor.WHITE
+        self.ui_manager.enable()
     
     def on_draw(self) -> None:
         self.clear()
@@ -66,13 +60,13 @@ class ConfirmLabel(arcade.Text):
     """
     The label for game start confirms followed by the total player count.
     """
-    def __init__(self, window: arcade.Window):
-        self.window = window
+    def __init__(self):
         super().__init__(self.confirm_text(), WINDOW_WIDTH * 0.62, WINDOW_HEIGHT * 0.1, arcade.color.BLACK)
     
     def confirm_text(self) -> str:
         """Returns the expected string label."""
-        return f'{self.window.start_confirms}/{self.window.player_count}'
+        window = arcade.get_window()
+        return f'{window.start_confirms}/{window.player_count}'
     
     def update(self) -> None:
         """Update method"""
@@ -82,14 +76,10 @@ class PlayerChoiceView(arcade.View):
     """
     The player choice view class.
     """
-    def __init__(self, window: arcade.Window):
+    def __init__(self):
         super().__init__()
-        self.window = window
-        self.background_color = arcade.csscolor.CORNSILK
         self.title = arcade.Text(text='Pick your player color!', x=WINDOW_WIDTH // 2, y=WINDOW_HEIGHT * 9 // 10, color=arcade.color.BLACK, font_size=30, anchor_x='center')
-
         self.ui_manager = arcade.gui.UIManager()
-        self.ui_manager.enable()
 
         # Create anchor layout
         self.anchor = arcade.gui.UIAnchorLayout()
@@ -98,14 +88,21 @@ class PlayerChoiceView(arcade.View):
         # Create color buttons
         self.color_buttons = [ColorButton(self.window, color) for color in PLAYER_COLORS]
 
+        self.confirm_button = None
+        self.confirm_label = None
+
         # Ensure current player is None in the window attributes
+        self.game_started = False
+        self.claimed_colors = None
+
+    def on_show_view(self):
+        self.background_color = arcade.csscolor.CORNSILK
+        # Ensure current player is None
         self.window.current_player = None
         # Set connected client count in window attrs
         self.window.player_count = 0
         # Set game start confirms to 0
         self.window.start_confirms = 0
-        self.game_started = False
-        self.claimed_colors = None
 
         # Establish a server connection
         self.window.client_socket = network.make_client_socket()
@@ -128,10 +125,12 @@ class PlayerChoiceView(arcade.View):
             self.ui_manager.add(color_button)
         
         # Create confirm button
-        self.confirm_button = ConfirmButton(self.window)
+        self.confirm_button = ConfirmButton()
         self.ui_manager.add(self.confirm_button)
         # Create confirm/total player count label
-        self.confirm_label = ConfirmLabel(self.window)
+        self.confirm_label = ConfirmLabel()
+
+        self.ui_manager.enable()
 
         # Make a queue for pending server messages
         # This should be a window attr because it's gonna get
@@ -160,8 +159,6 @@ class PlayerChoiceView(arcade.View):
             case 'GAME START':
                 self.game_started = True
                 self.claimed_colors = set(message['claimed_colors'])
-                # claimed_colors = set(message['claimed_colors'])
-                # arcade.schedule(game_view.spawn_balloon, 1/4)
             case _:
                 print(f"Invalid action: {message['action']}")
 
@@ -174,7 +171,7 @@ class PlayerChoiceView(arcade.View):
     
     def on_update(self, delta_time):
         if self.game_started and self.claimed_colors is not None:
-            game_view = GameView(self.window)
+            game_view = GameView(self.claimed_colors)
             self.window.show_view(game_view)
         # return super().on_update(delta_time)
         network.poll_from_queue(self.window.pending_messages, self.handle_join_and_confirm)
@@ -186,40 +183,16 @@ class GameView(arcade.View):
     Game class.
     """
 
-    def __init__(self, window: arcade.Window):
-        # Call the parent class and set up the window
-        # super().__init__(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
+    def __init__(self, claimed_colors: set[str]):
         super().__init__()
-        self.window = window
         self.background_color = arcade.csscolor.WHITE
         self.player_factory = PlayerFactory()
-        self.claimed_colors = {'red', 'green', 'yellow'}
-        # Initialize socket
-        # self.player_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # self.player_socket.connect((network.IP, network.PORT))
+        self.balloon_manager= BalloonManager()
+        self.claimed_colors = claimed_colors
     
     def on_show_view(self):
-        self.setup()
-
-    def setup(self) -> None:
-        """Set up the game here. Call this function to restart the game."""
-        # _, message = network.recv_and_unpack(self.player_socket)
-        # json_data = json.loads(message)
-        # if json_data['action'] == 'PLAYER UPDATE':
-        #     cilent_socket, client_address, player_number: int = json_data['assigned_player']
-        #     player_count: int = json_data['player_count']
-        #     if player_count < player_number:
-        #         raise ServerError('Error: Player assignment out of bounds by server!')
-        #     for i in range(player_count):
-        #         player = self.player_factory.add()
-        #         if i + 1 == player_number:
-        #             self.current_player = player
-        # else:
-        #     # placeholder exception, remove later
-        #     raise ServerError(f"Expected 'PLAYERS' message, instead got {json_data['action']}")
         for color in self.claimed_colors:
             self.player_factory.add(color)
-
 
     def on_draw(self) -> None:
         """Render the screen."""
@@ -241,8 +214,4 @@ class GameView(arcade.View):
             return
 
         # Attempt to remove player's balloons at the mouse coordinate
-        self.player_factory.check_pop((x, y))
-
-    def spawn_balloon(self) -> None:
-        """Spawns a balloon in the player factory."""
-        self.player_factory.spawn_balloon()
+        # self.player_factory.check_pop((x, y))

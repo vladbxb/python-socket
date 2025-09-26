@@ -5,9 +5,24 @@ Server implementation for balloon popping game.
 import socket
 import threading
 import json
+import time
 import network
-from constants import PLAYER_COLORS, MIN_PLAYERS, MAX_PLAYERS
+from constants import PLAYER_COLORS, MIN_PLAYERS, MAX_PLAYERS, TICK_DURATION
 from exceptions import InvalidPlayerException, UndefinedMessageException
+
+def game_loop() -> None:
+    """Game loop (server side)."""
+    next_tick = time.monotonic() + TICK_DURATION
+    tick_index = 0
+    while True:
+        time_now = time.monotonic()
+        if time_now >= next_tick:
+            print(f'Server at tick: {tick_index}')
+            next_tick += TICK_DURATION
+            tick_index += 1
+        else:
+            delay = next_tick - time_now
+            time.sleep(delay)
 
 def get_assigned_players(server_state: dict) -> list[socket.socket]:
     """
@@ -97,11 +112,11 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int],
             assigned_player_sockets = get_assigned_players(server_state)
             assert client_socket in assigned_player_sockets
             network.broadcast_message(assigned_player_sockets, server_message_json)
+            threading.Thread(target=game_loop, daemon=True).start()
    
     # Handle game loop messages
-    # while True:
-    #     _, game_message = network.recv_and_unpack(client_socket)
-    #     handle_game_message(game_message)
+
+
    
 
      

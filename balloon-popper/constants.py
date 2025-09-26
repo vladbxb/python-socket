@@ -55,3 +55,6 @@ HEADER_SIZE = 8
 BYTE_ORDER = 'big'
 DEFAULT_ENCODING = 'utf-8'
 MAX_SIZE = 4096
+
+# Server game loop details
+TICK_DURATION = 0.02
