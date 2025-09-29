@@ -10,9 +10,9 @@ import queue
 import random
 import uuid
 import network
-from constants import PLAYER_COLORS, MIN_PLAYERS, MAX_PLAYERS, TICK_DURATION, BALLOON_SPAWN_INTERVAL, BALLOON_TEXTURES, MARGIN, WINDOW_WIDTH, WINDOW_HEIGHT
+import constants as ct
+from player import Score, Balloon
 from exceptions import InvalidPlayerException, UndefinedMessageException
-from player import Balloon, increase_score_num, decrease_score_num
 
 def handle_game_messages(game_message_json: str, server_state: dict) -> None:
     """Handle incoming game messages from active players."""
@@ -36,11 +36,12 @@ def handle_game_messages(game_message_json: str, server_state: dict) -> None:
             network.broadcast_message(assigned_player_sockets, balloon_popped_json)
             with server_state['thread_condition']:
                 if player_color == balloon_color:
-                    server_state['player_scores'][player_color] = increase_score_num(server_state['player_scores'][player_color])
+                    player_score = server_state['player_scores'][player_color]
+                    server_state['player_scores'][player_color] = Score.increase_amount(player_score)
                     score_message = {'action': 'SCORE INCREASE', 'player_color': player_color}
                     score_message_json = json.dumps(score_message)
                 else:
-                    server_state['player_scores'][player_color] = decrease_score_num(server_state['player_scores'][player_color])
+                    server_state['player_scores'][player_color] = Score.decrease_amount(player_score)
                     score_message = {'action': 'SCORE DECREASE', 'player_color': player_color}
                     score_message_json = json.dumps(score_message)
             # print(f'Score was updated for {player_color}!')
@@ -63,8 +64,8 @@ def handle_game_messages(game_message_json: str, server_state: dict) -> None:
 
 def game_loop(server_state: dict, pending_messages: queue.Queue) -> None:
     """Game loop (server side)."""
-    next_tick = time.monotonic() + TICK_DURATION
-    next_balloon_spawn = time.monotonic() + BALLOON_SPAWN_INTERVAL
+    next_tick = time.monotonic() + ct.TICK_DURATION
+    next_balloon_spawn = time.monotonic() + ct.BALLOON_SPAWN_INTERVAL
     # tick_index = 0
     while True:
         time_now = time.monotonic()
@@ -73,29 +74,27 @@ def game_loop(server_state: dict, pending_messages: queue.Queue) -> None:
         network.poll_from_queue(pending_messages, handle_game_messages, server_state)
 
         if time_now >= next_tick:
-            next_tick += TICK_DURATION
+            next_tick += ct.TICK_DURATION
             # print(f'Server at tick: {tick_index}')
             # tick_index += 1
             if time_now >= next_balloon_spawn:
                 # Set next balloon spawn time
-                next_balloon_spawn = time_now + BALLOON_SPAWN_INTERVAL
+                next_balloon_spawn = time_now + ct.BALLOON_SPAWN_INTERVAL
                 with server_state['thread_condition']:
                     random_ply_color = random.choice(list(server_state['assigned_players'].keys()))
 
                 # Prepare random balloon data
                 balloon_id = uuid.uuid4().hex
-                balloon_size_x, balloon_size_y = BALLOON_TEXTURES[random_ply_color].size
+                balloon_size_x, balloon_size_y = ct.BALLOON_TEXTURES[random_ply_color].size
                 half_balloon_x: int = balloon_size_x // 2
                 half_balloon_y: int = balloon_size_y // 2
-                margin_x: int = MARGIN * 3
-                random_x: int = random.randint(margin_x + half_balloon_x, WINDOW_WIDTH - margin_x - half_balloon_x)
-                random_y: int = random.randint(half_balloon_y, WINDOW_HEIGHT - half_balloon_y)
+                margin_x: int = ct.MARGIN * 3
+                random_x: int = random.randint(margin_x + half_balloon_x, ct.WINDOW_WIDTH - margin_x - half_balloon_x)
+                random_y: int = random.randint(half_balloon_y, ct.WINDOW_HEIGHT - half_balloon_y)
 
                 with server_state['thread_condition']:
                     assigned_player_sockets = get_assigned_players(server_state)
                     server_state['active_balloons'].append(Balloon(balloon_id, random_ply_color, random_x, random_y))
-                
-                # print(f'Balloon {balloon_id} of color {random_ply_color} was spawned!')
 
                 # Send balloon data to players
                 balloon_data = {
@@ -137,13 +136,13 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int],
     if data['action'] != 'COLOR PICK':
         raise InvalidPlayerException("First received message must be player's color pick!")
     player_color = data['color']
-    if player_color not in PLAYER_COLORS:
+    if player_color not in ct.PLAYER_COLORS:
         raise ValueError(f'Received player color pick {player_color} is invalid!')
 
     with server_state['thread_condition']:
         # Assert that the chosen player color has not already been picked by someone else
         assert player_color not in server_state['assigned_players'].keys()
-        if server_state['started'] is True or len(server_state['assigned_players']) >= MAX_PLAYERS:
+        if server_state['started'] is True or len(server_state['assigned_players']) >= ct.MAX_PLAYERS:
             # If the game has started or the max amount of players has been reached,
             # close the new connection
             client_socket.close()
@@ -165,7 +164,7 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int],
     if data['action'] != 'CONFIRM START':
         raise UndefinedMessageException('Expected client game start confirm!')
 
-    # Count the confirmation 
+    # Count the confirmation
     with server_state['thread_condition']:
         server_state['confirms'].add(player_color)
         assigned_player_sockets = get_assigned_players(server_state)
@@ -180,24 +179,27 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int],
         # If everyone waiting has confirmed and the minimum required amount of players has been reached
         loop_starter = (not server_state['started']
                         and len(server_state['confirms']) == len(server_state['assigned_players'])
-                        and len(server_state['assigned_players']) >= MIN_PLAYERS)
+                        and len(server_state['assigned_players']) >= ct.MIN_PLAYERS)
 
         # Make the loop starter thread start the game
         if loop_starter:
             server_state['started'] = True
-            server_state['player_scores'] = {player_color: 0 for player_color in server_state['assigned_players']}
+            server_state['player_scores'] = {
+                player_color: 0
+                for player_color in server_state['assigned_players']
+            }
             server_message = {
                 'action':'GAME START',
                 'claimed_colors': list(server_state['confirms'])
             }
             assigned_player_sockets = get_assigned_players(server_state)
-        
+
         server_state['thread_condition'].notify_all()
 
         # Non loop starter threads wait until one thread starts the game
         while not server_state['started']:
             server_state['thread_condition'].wait()
-    
+
     if loop_starter:
         assert client_socket in assigned_player_sockets
         server_message_json = json.dumps(server_message)
@@ -230,7 +232,10 @@ def main() -> None:
     while True:
         client_socket, client_address = server_socket.accept()
         print(f'Connection accepted from {client_address}')
-        client_thread = threading.Thread(target=handle_client, args=(client_socket, client_address, server_state))
+        client_thread = threading.Thread(
+            target=handle_client,
+            args=(client_socket, client_address, server_state)
+        )
         client_thread.start()
 
 if __name__ == "__main__":

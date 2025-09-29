@@ -2,10 +2,10 @@
 Buttons module for balloon popping game.
 """
 
-import arcade
-import arcade.gui
 import json
 import socket
+import arcade
+import arcade.gui
 import network
 from constants import WINDOW_WIDTH, WINDOW_HEIGHT
 from player import claim_player_color
@@ -100,7 +100,7 @@ class ColorButton(arcade.gui.UIFlatButton):
             text=f'Player {self.color}',
             style=button_style
         )
-    
+
     def on_click(self, event: arcade.gui.UIOnClickEvent) -> None:
         # This is a no op, but just in case
         if self.disabled:
@@ -123,7 +123,7 @@ class ConfirmButton(arcade.gui.UIFlatButton):
             text='Start Game!'
         )
         self.client_socket = client_socket
-    
+
     def on_click(self, event: arcade.gui.UIOnClickEvent) -> None:
         # Send start confirm message
         confirm_message = {'action': 'CONFIRM START'}
