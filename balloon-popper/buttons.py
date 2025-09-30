@@ -42,7 +42,7 @@ class ColorButton(arcade.gui.UIFlatButton):
         border_width=0
         self.color = color
         self.client_socket = client_socket
-        self.current_player: str | None = None
+        self.claimed: bool = False
         match color:
             case 'red':
                 x = left_x
@@ -106,8 +106,8 @@ class ColorButton(arcade.gui.UIFlatButton):
         if self.disabled:
             return
         claim_player_color(self.client_socket, self.color)
-        self.current_player = self.color
         print(f'Claimed color {self.color}!')
+        self.claimed = True
         self.disabled = True
 
 class ConfirmButton(arcade.gui.UIFlatButton):

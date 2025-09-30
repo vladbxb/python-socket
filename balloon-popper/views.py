@@ -142,6 +142,7 @@ class PlayerChoiceView(arcade.View):
         self.confirm_button = ConfirmButton(self.client_socket)
         self.confirm_label = ConfirmLabel()
 
+        # Initializing variables to default values
         self.current_player = None
         self.game_started = False
         self.claimed_colors = None
@@ -162,6 +163,7 @@ class PlayerChoiceView(arcade.View):
         self.ui_manager.add(self.confirm_button)
         self.ui_manager.enable()
 
+        # Running thread for receiving server messages in the pending messages queue
         recv_runner = threading.Thread(
             target=network.recv_into_queue,
             args=(self.client_socket, self.pending_messages),
@@ -206,11 +208,6 @@ class PlayerChoiceView(arcade.View):
         self.start_confirms = confirms
         self.update_confirm_label()
 
-        # Disable buttons for players that confirmed
-        for color_button in self.color_buttons:
-            if color_button.color in claimed_colors:
-                color_button.disabled = True
-
     def update_confirm_label(self) -> None:
         """
         Updates the confirm label (the player count and confirm count)
@@ -225,6 +222,11 @@ class PlayerChoiceView(arcade.View):
         if diff > 0:
             for _ in range(diff):
                 self.confirm_label.add_confirm()
+    
+    def disable_color_buttons(self) -> None:
+        """Disables all color buttons."""
+        for color_button in self.color_buttons:
+            color_button.disabled = True
 
     def on_draw(self) -> None:
         self.clear()
@@ -234,14 +236,21 @@ class PlayerChoiceView(arcade.View):
 
     def on_update(self, delta_time):
         # Start the game if that's the case
+        if self.current_player is None:
+            for color_button in self.color_buttons:
+                if color_button.claimed is True:
+                    self.current_player = color_button.color
+                    self.disable_color_buttons()
+                    break
         if self.game_started and self.claimed_colors is not None:
             # Get current player
-            for color_button in self.color_buttons:
-                if color_button.current_player is not None:
-                    current_player = color_button.current_player
-                    break
             window = arcade.get_window()
-            game_view = GameView(self.claimed_colors, current_player, self.pending_messages, self.client_socket)
+            game_view = GameView(
+                self.claimed_colors,
+                self.current_player,
+                self.pending_messages,
+                self.client_socket
+            )
             window.show_view(game_view)
         # Respond to incoming server messages
         network.poll_from_queue(self.pending_messages, self.handle_join_and_confirm)
@@ -256,7 +265,7 @@ class GameView(arcade.View):
         super().__init__()
         self.background_color = arcade.csscolor.WHITE
         self.player_factory = PlayerFactory()
-        self.balloon_manager= BalloonManager(current_player, client_socket)
+        self.balloon_manager = BalloonManager(current_player, client_socket)
         self.claimed_colors = claimed_colors
         self.pending_messages = pending_messages
 
@@ -298,7 +307,7 @@ class GameView(arcade.View):
     def on_update(self, delta_time: float) -> None:
         """Update objects based on delta time."""
 
-        self.player_factory.update(delta_time)
+        self.player_factory.update()
         self.balloon_manager.update(delta_time)
         network.poll_from_queue(self.pending_messages, self.handle_game_server_msgs)
 

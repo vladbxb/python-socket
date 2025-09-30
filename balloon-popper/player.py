@@ -9,14 +9,6 @@ import network
 import constants as ct
 from exceptions import InvalidPlayerException
 
-def increase_score_num(score: int) -> int:
-    """Returns increased score number"""
-    return score + ct.BALLOON_POP_REWARD
-
-def decrease_score_num(score: int) -> int:
-    """Returns decreased score number"""
-    return score - ct.BALLOON_POP_REWARD * 2
-
 class Score(arcade.Text):
     """
     Score class for Player.
@@ -60,7 +52,6 @@ class Score(arcade.Text):
     def update(self) -> None:
         """Updates the score label with the current score number."""
         self.text = self.score_text()
-
 
 class Balloon(arcade.Sprite):
     """Balloon class for Player."""
@@ -201,10 +192,10 @@ class PlayerFactory:
         for player in self._players:
             player.draw()
 
-    def update(self, delta_time: float) -> None:
+    def update(self) -> None:
         """Updates all of the players."""
         for player in self._players:
-            player.update(delta_time)
+            player.update()
 
 def claim_player_color(server_socket: socket.socket, player_color: str) -> bool:
     """Request server for claiming a player spot."""
