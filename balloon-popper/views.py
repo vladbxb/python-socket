@@ -1,8 +1,13 @@
-import arcade
-import arcade.gui
+"""
+Module for View inherited objects.
+"""
+
 import json
 import threading
 import queue
+import socket
+import arcade
+import arcade.gui
 import network
 from constants import WINDOW_WIDTH, WINDOW_HEIGHT, PLAYER_COLORS
 from exceptions import UndefinedMessageException
@@ -17,11 +22,12 @@ class PlayButton(arcade.gui.UIFlatButton):
         super().__init__(text='Play', width=300)
 
     def on_click(self, event: arcade.gui.UIOnClickEvent):
-        # game_view = GameView()
-        # game_view.setup()
-        # arcade.schedule(game_view.spawn_balloon, 1/4)
+        # Establish a server connection
+        client_socket = network.make_client_socket()
+        # After establishing the connection, switch to the PlayerChoiceView
+        self.disabled = True
         window = arcade.get_window()
-        choice_view = PlayerChoiceView()
+        choice_view = PlayerChoiceView(client_socket)
         window.show_view(choice_view)
 
 class MenuView(arcade.View):
@@ -31,7 +37,15 @@ class MenuView(arcade.View):
 
     def __init__(self):
         super().__init__()
-        self.title = arcade.Text(text='Balloon Popping!', x=WINDOW_WIDTH // 2, y=WINDOW_HEIGHT // 3 * 2, color=arcade.color.BLACK, font_size=30, anchor_x='center')
+        self.title = arcade.Text(
+            text='Balloon Popping!',
+            x=WINDOW_WIDTH // 2,
+            y=WINDOW_HEIGHT // 3 * 2,
+            color=arcade.color.BLACK,
+            font_size=30,
+            anchor_x='center'
+        )
+
         self.ui_manager = arcade.gui.UIManager()
         # Create anchor layout
         self.anchor = arcade.gui.UIAnchorLayout()
@@ -47,10 +61,10 @@ class MenuView(arcade.View):
             anchor_y='center_y',
         )
 
-    def on_show_view(self):
+    def on_show_view(self) -> None:
         self.background_color = arcade.csscolor.WHITE
         self.ui_manager.enable()
-    
+
     def on_draw(self) -> None:
         self.clear()
         self.title.draw()
@@ -61,13 +75,39 @@ class ConfirmLabel(arcade.Text):
     The label for game start confirms followed by the total player count.
     """
     def __init__(self):
-        super().__init__(self.confirm_text(), WINDOW_WIDTH * 0.62, WINDOW_HEIGHT * 0.1, arcade.color.BLACK)
-    
+        super().__init__(
+            str(),
+            WINDOW_WIDTH * 0.62,
+            WINDOW_HEIGHT * 0.1,
+            arcade.color.BLACK
+        )
+        self._start_confirms = 0
+        self._player_count = 0
+
+    @property
+    def start_confirms(self) -> int:
+        """Returns amount of game start confirms."""
+        return self._start_confirms
+
+    @property
+    def player_count(self) -> int:
+        """Returns the total connected player count."""
+        return self._player_count
+
+    def add_confirm(self) -> None:
+        """Adds a start confirm internally."""
+        self._start_confirms += 1
+        print('New game start confirm added to ConfirmLabel!')
+
+    def add_player(self) -> None:
+        """Increments a player counter internally."""
+        self._player_count += 1
+        print('New player added to ConfirmLabel!')
+
     def confirm_text(self) -> str:
         """Returns the expected string label."""
-        window = arcade.get_window()
-        return f'{window.start_confirms}/{window.player_count}'
-    
+        return f'{self._start_confirms}/{self._player_count}'
+
     def update(self) -> None:
         """Update method"""
         self.text = self.confirm_text()
@@ -76,9 +116,20 @@ class PlayerChoiceView(arcade.View):
     """
     The player choice view class.
     """
-    def __init__(self):
+    def __init__(self, client_socket: socket.socket):
         super().__init__()
-        self.title = arcade.Text(text='Pick your player color!', x=WINDOW_WIDTH // 2, y=WINDOW_HEIGHT * 9 // 10, color=arcade.color.BLACK, font_size=30, anchor_x='center')
+
+        self.client_socket = client_socket
+
+        self.title = arcade.Text(
+            text='Pick your player color!',
+            x=WINDOW_WIDTH // 2,
+            y=WINDOW_HEIGHT * 9 // 10,
+            color=arcade.color.BLACK,
+            font_size=30,
+            anchor_x='center'
+        )
+
         self.ui_manager = arcade.gui.UIManager()
 
         # Create anchor layout
@@ -86,58 +137,39 @@ class PlayerChoiceView(arcade.View):
         self.ui_manager.add(self.anchor)
 
         # Create color buttons
-        self.color_buttons = [ColorButton(self.window, color) for color in PLAYER_COLORS]
+        self.color_buttons = [ColorButton(color, self.client_socket) for color in PLAYER_COLORS]
 
-        self.confirm_button = None
-        self.confirm_label = None
+        self.confirm_button = ConfirmButton(self.client_socket)
+        self.confirm_label = ConfirmLabel()
 
-        # Ensure current player is None in the window attributes
+        # Initializing variables to default values
+        self.current_player = None
         self.game_started = False
         self.claimed_colors = None
+        self.player_count = 0
+        self.start_confirms = 0
+
+        self.pending_messages = queue.Queue()
 
     def on_show_view(self):
         self.background_color = arcade.csscolor.CORNSILK
-        # Ensure current player is None
-        self.window.current_player = None
-        # Set connected client count in window attrs
-        self.window.player_count = 0
-        # Set game start confirms to 0
-        self.window.start_confirms = 0
 
-        # Establish a server connection
-        self.window.client_socket = network.make_client_socket()
-        # Disable the buttons that have already been claimed
-        _, message_json = network.recv_and_unpack(self.window.client_socket)
-        message = json.loads(message_json)
-        if message['action'] != 'COLORS TAKEN':
-            raise UndefinedMessageException(f"COLORS TAKEN message expected, instead got {message['action']}")
-        claimed_colors = set(message['result'])
-        confirms = message['confirms']
-        self.window.player_count = len(claimed_colors)
-        self.window.start_confirms = confirms
-
-        # Disable the color buttons for the colors that have been claimed, as the server says
-        for color_button in self.color_buttons:
-            if color_button.color in claimed_colors:
-                color_button.disabled = True
+        # Fetch the connected players and disable the claimed color buttons
+        self.fetch_connected()
 
         for color_button in self.color_buttons:
             self.ui_manager.add(color_button)
-        
-        # Create confirm button
-        self.confirm_button = ConfirmButton()
-        self.ui_manager.add(self.confirm_button)
-        # Create confirm/total player count label
-        self.confirm_label = ConfirmLabel()
 
+        self.ui_manager.add(self.confirm_button)
         self.ui_manager.enable()
 
-        # Make a queue for pending server messages
-        # This should be a window attr because it's gonna get
-        # passed down to the GameView.
-        self.window.pending_messages = queue.Queue()
-        self.window.recv_runner = threading.Thread(target=network.recv_into_queue, args=(self.window.client_socket, self.window.pending_messages), daemon=True)
-        self.window.recv_runner.start()
+        # Running thread for receiving server messages in the pending messages queue
+        recv_runner = threading.Thread(
+            target=network.recv_into_queue,
+            args=(self.client_socket, self.pending_messages),
+            daemon=True
+        )
+        recv_runner.start()
 
     def handle_join_and_confirm(self, message_json: str) -> None:
         """
@@ -148,52 +180,99 @@ class PlayerChoiceView(arcade.View):
             case 'COLORS TAKEN':
                 result = set(message['result'])
                 confirms = message['confirms']
-                self.window.player_count = len(result)
-                self.window.start_confirms = confirms
+                self.player_count = len(result)
+                self.start_confirms = confirms
+                self.update_confirm_label()
                 for color_button in self.color_buttons:
                     if color_button.color in result:
                         print(f'Disabled {color_button.color}!')
                         color_button.disabled = True
             case 'NEW CONFIRM':
-                self.window.start_confirms += 1
+                self.start_confirms += 1
+                self.confirm_label.add_confirm()
             case 'GAME START':
                 self.game_started = True
                 self.claimed_colors = set(message['claimed_colors'])
             case _:
                 print(f"Invalid action: {message['action']}")
 
+    def fetch_connected(self) -> None:
+        """Asks the server for which people have confirmed game start and joined."""
+        _, message_json = network.recv_and_unpack(self.client_socket)
+        message = json.loads(message_json)
+        if message['action'] != 'COLORS TAKEN':
+            raise UndefinedMessageException(f"COLORS TAKEN message expected, instead got {message['action']}")
+        claimed_colors = set(message['result'])
+        confirms = message['confirms']
+        self.player_count = len(claimed_colors)
+        self.start_confirms = confirms
+        self.update_confirm_label()
+
+    def update_confirm_label(self) -> None:
+        """
+        Updates the confirm label (the player count and confirm count)
+        if changes have occurred
+        """
+        # Update the confirm label if needed
+        diff = self.player_count - self.confirm_label.player_count
+        if diff > 0:
+            for _ in range(diff):
+                self.confirm_label.add_player()
+        diff = self.start_confirms - self.confirm_label.start_confirms
+        if diff > 0:
+            for _ in range(diff):
+                self.confirm_label.add_confirm()
+    
+    def disable_color_buttons(self) -> None:
+        """Disables all color buttons."""
+        for color_button in self.color_buttons:
+            color_button.disabled = True
 
     def on_draw(self) -> None:
         self.clear()
         self.title.draw()
         self.confirm_label.draw()
         self.ui_manager.draw()
-    
-    def on_update(self, delta_time):
-        if self.game_started and self.claimed_colors is not None:
-            game_view = GameView(self.claimed_colors)
-            self.window.show_view(game_view)
-        # return super().on_update(delta_time)
-        network.poll_from_queue(self.window.pending_messages, self.handle_join_and_confirm)
-        self.confirm_label.update()
 
+    def on_update(self, delta_time):
+        # Start the game if that's the case
+        if self.current_player is None:
+            for color_button in self.color_buttons:
+                if color_button.claimed is True:
+                    self.current_player = color_button.color
+                    self.disable_color_buttons()
+                    break
+        if self.game_started and self.claimed_colors is not None:
+            # Get current player
+            window = arcade.get_window()
+            game_view = GameView(
+                self.claimed_colors,
+                self.current_player,
+                self.pending_messages,
+                self.client_socket
+            )
+            window.show_view(game_view)
+        # Respond to incoming server messages
+        network.poll_from_queue(self.pending_messages, self.handle_join_and_confirm)
+        self.confirm_label.update()
 
 class GameView(arcade.View):
     """
     Game class.
     """
 
-    def __init__(self, claimed_colors: set[str]):
+    def __init__(self, claimed_colors: set[str], current_player: str, pending_messages: queue.Queue, client_socket: socket.socket):
         super().__init__()
         self.background_color = arcade.csscolor.WHITE
         self.player_factory = PlayerFactory()
-        self.balloon_manager= BalloonManager()
+        self.balloon_manager = BalloonManager(current_player, client_socket)
         self.claimed_colors = claimed_colors
-    
+        self.pending_messages = pending_messages
+
     def on_show_view(self):
         for color in self.claimed_colors:
             self.player_factory.add(color)
-    
+
     def handle_game_server_msgs(self, game_message_json: str):
         """Handles messages received from the server in the game loop."""
         game_message = json.loads(game_message_json)
@@ -203,19 +282,15 @@ class GameView(arcade.View):
                 player_color = game_message['player_color']
                 center_x = game_message['center_x']
                 center_y = game_message['center_y']
-                # print(f'Received BALLOON SPAWN message for balloon {balloon_id} with color {player_color}!')
                 self.balloon_manager.add(balloon_id, player_color, center_x, center_y)
             case 'SCORE INCREASE':
                 player_color = game_message['player_color']
-                # print(f'Received SCORE INCREASE message for player {player_color}!')
-                self.player_factory.get_player_by_color(player_color).score.increase_score()
+                self.player_factory.get_player_by_color(player_color).score.increase()
             case 'SCORE DECREASE':
                 player_color = game_message['player_color']
-                # print(f'Received SCORE DECREASE message for player {player_color}!')
-                self.player_factory.get_player_by_color(player_color).score.decrease_score()
+                self.player_factory.get_player_by_color(player_color).score.decrease()
             case 'BALLOON REMOVE':
                 balloon_id = game_message['balloon_id']
-                # print(f'Received BALLOON REMOVE message for {balloon_id}!')
                 self.balloon_manager.remove_by_id(balloon_id)
             case _:
                 raise UndefinedMessageException(f"Received invalid message from game server: {game_message['action']}")
@@ -232,9 +307,9 @@ class GameView(arcade.View):
     def on_update(self, delta_time: float) -> None:
         """Update objects based on delta time."""
 
-        self.player_factory.update(delta_time)
+        self.player_factory.update()
         self.balloon_manager.update(delta_time)
-        network.poll_from_queue(self.window.pending_messages, self.handle_game_server_msgs)
+        network.poll_from_queue(self.pending_messages, self.handle_game_server_msgs)
 
     def on_mouse_press(self, x: int, y: int, button, modifiers) -> None:
         """Callback for mouse presses. Used for popping balloons."""

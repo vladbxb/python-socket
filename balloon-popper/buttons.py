@@ -2,9 +2,10 @@
 Buttons module for balloon popping game.
 """
 
+import json
+import socket
 import arcade
 import arcade.gui
-import json
 import network
 from constants import WINDOW_WIDTH, WINDOW_HEIGHT
 from player import claim_player_color
@@ -27,9 +28,7 @@ class ColorButton(arcade.gui.UIFlatButton):
     """
     Button for picking player color.
     """
-    def __init__(self, window: arcade.Window, color: str):
-        self.color = color
-        self.window = window
+    def __init__(self, color: str, client_socket: socket.socket):
         button_width = 200
         button_height = 200
         padding = 10
@@ -41,6 +40,9 @@ class ColorButton(arcade.gui.UIFlatButton):
         font_name='arial'
         font_color=arcade.color.BLACK
         border_width=0
+        self.color = color
+        self.client_socket = client_socket
+        self.claimed: bool = False
         match color:
             case 'red':
                 x = left_x
@@ -90,30 +92,41 @@ class ColorButton(arcade.gui.UIFlatButton):
                 bg=arcade.color.GRAY_ASPARAGUS
             ),
         }
-        super().__init__(x=x, y=y, width=button_width, height=button_height, text=f'Player {self.color}', style=button_style)
-    
+        super().__init__(
+            x=x,
+            y=y,
+            width=button_width,
+            height=button_height,
+            text=f'Player {self.color}',
+            style=button_style
+        )
+
     def on_click(self, event: arcade.gui.UIOnClickEvent) -> None:
         # This is a no op, but just in case
-        if self.disabled or self.window.current_player is not None:
+        if self.disabled:
             return
-        claim_player_color(self.window.client_socket, self.color)
-        self.disabled = True
-        self.window.current_player = self.color
+        claim_player_color(self.client_socket, self.color)
         print(f'Claimed color {self.color}!')
+        self.claimed = True
+        self.disabled = True
 
 class ConfirmButton(arcade.gui.UIFlatButton):
     """
     Button for confirming game start.
     """
-    def __init__(self):
-        super().__init__(x=WINDOW_WIDTH // 2 - 150, y=WINDOW_HEIGHT * 0.05, width=300, height=100, text='Start Game!')
-    
-    def on_click(self, event: arcade.gui.UIOnClickEvent) -> None:
-        # Get a handle to the current window
-        window = arcade.get_window()
+    def __init__(self, client_socket: socket.socket):
+        super().__init__(
+            x=WINDOW_WIDTH // 2 - 150,
+            y=WINDOW_HEIGHT * 0.05,
+            width=300,
+            height=100,
+            text='Start Game!'
+        )
+        self.client_socket = client_socket
 
+    def on_click(self, event: arcade.gui.UIOnClickEvent) -> None:
         # Send start confirm message
         confirm_message = {'action': 'CONFIRM START'}
         confirm_message_json = json.dumps(confirm_message)
-        network.send_message(window.client_socket, confirm_message_json)
+        network.send_message(self.client_socket, confirm_message_json)
         self.disabled = True

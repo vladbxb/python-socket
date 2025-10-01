@@ -47,7 +47,7 @@ PLAYER_COLORS = ('red', 'green', 'yellow', 'pink')
 
 # Socket connection constants
 IP = '127.0.0.1'
-PORT = 55556
+PORT = 55555
 MAX_CONNECTIONS = 4
 
 # Network frame details
