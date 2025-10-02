@@ -75,10 +75,12 @@ class ConfirmLabel(arcade.Text):
     The label for game start confirms followed by the total player count.
     """
     def __init__(self):
+        x_pos = WINDOW_WIDTH // 2 + min(WINDOW_HEIGHT, WINDOW_WIDTH) * 0.15 * 1.6
+        y_pos = x_pos * 0.075
         super().__init__(
             str(),
-            WINDOW_WIDTH * 0.62,
-            WINDOW_HEIGHT * 0.1,
+            x_pos,
+            y_pos,
             arcade.color.BLACK
         )
         self._start_confirms = 0
@@ -207,6 +209,10 @@ class PlayerChoiceView(arcade.View):
         self.player_count = len(claimed_colors)
         self.start_confirms = confirms
         self.update_confirm_label()
+        for color_button in self.color_buttons:
+            if color_button.color in claimed_colors:
+                print(f'Disabled {color_button.color}!')
+                color_button.disabled = True
 
     def update_confirm_label(self) -> None:
         """
