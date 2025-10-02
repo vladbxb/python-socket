@@ -3,10 +3,10 @@ Player module for player-related classes.
 """
 
 import socket
-import json
 import arcade
 import network
 import constants as ct
+import server_message as sm
 from exceptions import InvalidPlayerException
 
 class Score(arcade.Text):
@@ -103,12 +103,7 @@ class BalloonManager:
             balloon_to_remove = balloons_clicked[-1]
 
             # Prepare balloon data for sending to server
-            balloon_data = {
-                'action': 'BALLOON POP',
-                'balloon_id': balloon_to_remove.balloon_id,
-                'popped_by': self.current_player,
-            }
-            balloon_data_json = json.dumps(balloon_data)
+            balloon_data_json = sm.balloon_pop_msg(balloon_to_remove.balloon_id, self.current_player)
             network.send_message(self.client_socket, balloon_data_json)
 
             print(f'Sent BALLOON POP message for {balloon_to_remove.balloon_id} to server!')
@@ -127,11 +122,7 @@ class BalloonManager:
             # If the balloon goes out of bounds, remove it
             texture_size_x, _ = ct.BALLOON_TEXTURES[balloon.player_color].size
             if balloon.center_y - texture_size_x > ct.WINDOW_HEIGHT:
-                out_of_bounds_msg = {
-                    'action': 'BALLOON OUT OF BOUNDS',
-                    'balloon_id': balloon.balloon_id
-                }
-                out_of_bounds_msg_json = json.dumps(out_of_bounds_msg)
+                out_of_bounds_msg_json = sm.balloon_out_of_bounds_msg(balloon.balloon_id)
                 network.send_message(self.client_socket, out_of_bounds_msg_json)
                 print(f'Sent BALLOON OUT OF BOUNDS message for {balloon.balloon_id}!')
                 self._balloons.remove(balloon)
@@ -201,9 +192,5 @@ def claim_player_color(server_socket: socket.socket, player_color: str) -> bool:
     """Request server for claiming a player spot."""
     if player_color not in ct.PLAYER_COLORS:
         raise ValueError(f'Player color {player_color} does not exist!')
-    message = {
-        'action': 'COLOR PICK',
-        'color': player_color,
-    }
-    json_message = json.dumps(message)
+    json_message = sm.color_pick_msg(player_color)
     network.send_message(server_socket, json_message)

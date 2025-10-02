@@ -207,6 +207,10 @@ class PlayerChoiceView(arcade.View):
         self.player_count = len(claimed_colors)
         self.start_confirms = confirms
         self.update_confirm_label()
+        for color_button in self.color_buttons:
+            if color_button.color in claimed_colors:
+                print(f'Disabled {color_button.color}!')
+                color_button.disabled = True
 
     def update_confirm_label(self) -> None:
         """

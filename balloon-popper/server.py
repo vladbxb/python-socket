@@ -14,6 +14,7 @@ import network
 import constants as ct
 from player import Score, Balloon
 from exceptions import InvalidPlayerException, UndefinedMessageException
+import server_message as sm
 
 @dataclass
 class PlayerConnections:
@@ -28,10 +29,12 @@ class PlayerConnections:
 
     @property
     def connected_colors(self) -> tuple[str]:
+        """Returns a tuple consisting of the connected players' colors."""
         return tuple(color for color in ct.PLAYER_COLORS if getattr(self, color) is not None)
     
     @property
     def sockets(self) -> tuple[socket.socket]:
+        """Returns the sockets for the connected players."""
         active_sockets = []
         for color in ct.PLAYER_COLORS:
             result = getattr(self, color)
@@ -49,6 +52,7 @@ class PlayerConnections:
         return sock
     
     def assign_connection(self, color: str, connection) -> None:
+        """Assigns a new connection to a player color, with error checking."""
         if color not in ct.PLAYER_COLORS:
             raise ValueError(f'Cannot assign player connection to color {color}!')
         if getattr(self, color) is None:
@@ -72,14 +76,16 @@ class PlayerScores:
         return result
     
     def increase_for(self, color: str) -> None:
+        """Increases the score for a player (server side)."""
         if color not in ct.PLAYER_COLORS:
             raise ValueError(f'Player color {color} does not exist, cannot increase player score.')
-        setattr(self, color, Score.increase_amount(getattr(self, color))) 
+        setattr(self, color, Score.increase_amount(getattr(self, color)))
 
     def decrease_for(self, color: str) -> None:
+        """Decreases the score for a player (server side)."""
         if color not in ct.PLAYER_COLORS:
             raise ValueError(f'Player color {color} does not exist, cannot increase player score.')
-        setattr(self, color, Score.decrease_amount(getattr(self, color))) 
+        setattr(self, color, Score.decrease_amount(getattr(self, color)))
 
 @dataclass
 class ServerState:
@@ -90,7 +96,24 @@ class ServerState:
     player_scores: PlayerScores = field(default_factory=PlayerScores)
     started: bool = False
 
-def handle_game_messages(message: str, state: ServerState, thread_cond: threading.Condition) -> None:
+def create_random_balloon(color: str) -> Balloon:
+    """Creates a balloon object at a random position from a specified player color."""
+    # Prepare random balloon data
+    balloon_id = uuid.uuid4().hex
+    balloon_size_x, balloon_size_y = ct.BALLOON_TEXTURES[color].size
+    half_balloon_x: int = balloon_size_x // 2
+    half_balloon_y: int = balloon_size_y // 2
+    margin_x: int = ct.MARGIN * 3
+    random_x: int = random.randint(margin_x + half_balloon_x, ct.WINDOW_WIDTH - margin_x - half_balloon_x)
+    random_y: int = random.randint(half_balloon_y, ct.WINDOW_HEIGHT - half_balloon_y)
+    return Balloon(
+        balloon_id,
+        color,
+        random_x,
+        random_y
+    )
+
+def handle_game_message(message: str, state: ServerState, thread_cond: threading.Condition) -> None:
     """Handle incoming game messages from active players."""
     game_message = json.loads(message)
     print('Received message from client!')
@@ -106,18 +129,15 @@ def handle_game_messages(message: str, state: ServerState, thread_cond: threadin
                         state.active_balloons.remove(balloon)
                         break
             # Broadcast to all players that the balloon should be removed
-            balloon_popped = {'action':'BALLOON REMOVE', 'balloon_id':balloon_id}
-            balloon_popped_json = json.dumps(balloon_popped)
+            balloon_popped_json = sm.balloon_remove_msg(balloon_id)
             network.broadcast_message(assigned_player_sockets, balloon_popped_json)
             with thread_cond:
                 if player_color == balloon_color:
                     state.player_scores.increase_for(player_color)
-                    score_message = {'action': 'SCORE INCREASE', 'player_color': player_color}
-                    score_message_json = json.dumps(score_message)
+                    score_message_json = sm.score_increase_msg(player_color)
                 else:
                     state.player_scores.decrease_for(player_color)
-                    score_message = {'action': 'SCORE DECREASE', 'player_color': player_color}
-                    score_message_json = json.dumps(score_message)
+                    score_message_json = sm.score_decrease_msg(player_color)
             network.broadcast_message(assigned_player_sockets, score_message_json)
         case 'BALLOON OUT OF BOUNDS':
             balloon_id = game_message['balloon_id']
@@ -128,8 +148,7 @@ def handle_game_messages(message: str, state: ServerState, thread_cond: threadin
                         # Broadcast to all players that the balloon should be removed
                         state.active_balloons.remove(balloon)
                         break
-            balloon_popped = {'action':'BALLOON REMOVE', 'balloon_id':balloon_id}
-            balloon_popped_json = json.dumps(balloon_popped)
+            balloon_popped_json = sm.balloon_remove_msg(balloon_id)
             network.broadcast_message(assigned_player_sockets, balloon_popped_json)
         case _:
             raise UndefinedMessageException(f"Game message in game loop {game_message['action']} is undefined")
@@ -142,45 +161,27 @@ def game_loop(state: ServerState, thread_cond: threading.Condition, pending_mess
         time_now = time.monotonic()
 
         # Handle incoming player messages
-        network.poll_from_queue(pending_messages, handle_game_messages, server_state=state, thread_cond=thread_cond)
+        network.poll_from_queue(pending_messages, handle_game_message, server_state=state, thread_cond=thread_cond)
 
         if time_now >= next_tick:
             next_tick += ct.TICK_DURATION
             if time_now >= next_balloon_spawn:
                 # Set next balloon spawn time
                 next_balloon_spawn = time_now + ct.BALLOON_SPAWN_INTERVAL
+
                 with thread_cond:
                     random_ply_color = random.choice(state.assigned_players.connected_colors)
-
-                # Prepare random balloon data
-                balloon_id = uuid.uuid4().hex
-                balloon_size_x, balloon_size_y = ct.BALLOON_TEXTURES[random_ply_color].size
-                half_balloon_x: int = balloon_size_x // 2
-                half_balloon_y: int = balloon_size_y // 2
-                margin_x: int = ct.MARGIN * 3
-                random_x: int = random.randint(margin_x + half_balloon_x, ct.WINDOW_WIDTH - margin_x - half_balloon_x)
-                random_y: int = random.randint(half_balloon_y, ct.WINDOW_HEIGHT - half_balloon_y)
-
-                with thread_cond:
                     assigned_player_sockets = state.assigned_players.sockets
-                    state.active_balloons.append(
-                        Balloon(
-                            balloon_id,
-                            random_ply_color,
-                            random_x,
-                            random_y
-                        )
-                    )
+                    new_balloon: Balloon = create_random_balloon(random_ply_color)
+                    state.active_balloons.append(new_balloon)
 
                 # Send balloon data to players
-                balloon_data = {
-                    'action': 'BALLOON SPAWN',
-                    'balloon_id': balloon_id,
-                    'player_color': random_ply_color,
-                    'center_x': random_x,
-                    'center_y': random_y,
-                }
-                balloon_data_json = json.dumps(balloon_data)
+                balloon_data_json = sm.balloon_spawn_msg(
+                    new_balloon.balloon_id,
+                    new_balloon.player_color,
+                    new_balloon.center_x,
+                    new_balloon.center_y
+                )
                 network.broadcast_message(assigned_player_sockets, balloon_data_json)
         else:
             delay = next_tick - time_now
@@ -198,12 +199,7 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int],
     """Handle each client in a different thread."""
     # Inform the player about the currently occupied colors
     with thread_cond:
-        colors_taken = {
-            'action': 'COLORS TAKEN',
-            'result': list(state.assigned_players.connected_colors),
-            'confirms': len(state.confirms)
-        }
-    colors_taken_json = json.dumps(colors_taken)
+        colors_taken_json = sm.colors_taken_msg(state.assigned_players.connected_colors, state.confirms)
     network.send_message(client_socket, colors_taken_json)
 
     # Pending player color pick
@@ -227,12 +223,7 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int],
         # Assign the new player their color
         state.assigned_players.assign_connection(player_color, (client_socket, client_address))
         assigned_player_sockets = state.assigned_players.sockets
-        colors_taken = {
-            'action': 'COLORS TAKEN',
-            'result': list(state.assigned_players.connected_colors),
-            'confirms': len(state.confirms)
-        }
-    colors_taken_json = json.dumps(colors_taken)
+        colors_taken_json = sm.colors_taken_msg(state.assigned_players.connected_colors, state.confirms)
     network.broadcast_message(assigned_player_sockets, colors_taken_json)
 
     # Waiting for confirming game start
@@ -245,9 +236,8 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int],
     with thread_cond:
         state.confirms.add(player_color)
         assigned_player_sockets = state.assigned_players.sockets
-    message = {'action': 'NEW CONFIRM'}
-    message_json = json.dumps(message)
 
+    message_json = sm.new_confirm_msg()
     network.broadcast_message(assigned_player_sockets, message_json)
 
     # and notify all threads of the change
@@ -261,11 +251,8 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int],
         # Make the loop starter thread start the game
         if loop_starter:
             state.started = True
-            server_message = {
-                'action':'GAME START',
-                'claimed_colors': list(state.confirms),
-            }
             assigned_player_sockets = state.assigned_players.sockets
+            server_message_json = sm.game_start_msg(state.confirms)
 
         thread_cond.notify_all()
 
@@ -274,15 +261,23 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int],
             thread_cond.wait()
 
     if loop_starter:
-        assert client_socket in assigned_player_sockets
-        server_message_json = json.dumps(server_message)
-        print('Broadcasting game start!')
         # Assert that the current client is also an assigned player
+        assert client_socket in assigned_player_sockets
+        # Start the game
+        print('Broadcasting game start!')
         network.broadcast_message(assigned_player_sockets, server_message_json)
         pending_messages = queue.Queue()
         for ply_socket in assigned_player_sockets:
-            threading.Thread(target=network.recv_into_queue, args=(ply_socket, pending_messages), daemon=True).start()
-        threading.Thread(target=game_loop, args=(state, thread_cond, pending_messages), daemon=True).start()
+            threading.Thread(
+                target=network.recv_into_queue,
+                args=(ply_socket, pending_messages),
+                daemon=True
+            ).start()
+        threading.Thread(
+            target=game_loop,
+            args=(state, thread_cond, pending_messages),
+            daemon=True
+        ).start()
 
 def main() -> None:
     """Main function."""
