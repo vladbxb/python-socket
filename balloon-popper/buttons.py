@@ -29,8 +29,9 @@ class ColorButton(arcade.gui.UIFlatButton):
     Button for picking player color.
     """
     def __init__(self, color: str, client_socket: socket.socket):
-        button_width = 200
-        button_height = 200
+        size = min(WINDOW_HEIGHT, WINDOW_WIDTH) * 0.3
+        button_width = size
+        button_height = size
         padding = 10
         left_x = WINDOW_WIDTH // 2 - button_width - padding
         right_x = WINDOW_WIDTH // 2 + padding
@@ -115,11 +116,12 @@ class ConfirmButton(arcade.gui.UIFlatButton):
     Button for confirming game start.
     """
     def __init__(self, client_socket: socket.socket):
+        size = min(WINDOW_HEIGHT, WINDOW_WIDTH) * 0.15
         super().__init__(
-            x=WINDOW_WIDTH // 2 - 150,
-            y=WINDOW_HEIGHT * 0.05,
-            width=300,
-            height=100,
+            x=WINDOW_WIDTH // 2 - size * 1.5,
+            y=size * 0.1,
+            width=size * 3,
+            height=size,
             text='Start Game!'
         )
         self.client_socket = client_socket
